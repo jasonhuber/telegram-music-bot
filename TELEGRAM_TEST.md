@@ -15,7 +15,13 @@ Leave that window open.
 
 ## 2. Add This To Your Existing n8n Telegram Flow
 
-After your Telegram trigger, add an `HTTP Request` node.
+Use the Telegram credential for the bot named `Dubo`. After that Telegram trigger, add an `HTTP Request` node.
+
+The workflow can be named something explicit like:
+
+```text
+Dubo - AI Music Generator
+```
 
 Method:
 

@@ -1,6 +1,6 @@
 # n8n Workflow Wiring
 
-This assumes your existing Telegram hook already receives messages.
+This assumes your existing Telegram hook already receives messages. Use the n8n Telegram credential for the bot named `Dubo`.
 
 ## Text Or Link Messages
 
