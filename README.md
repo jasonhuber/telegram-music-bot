@@ -64,6 +64,8 @@ C:\Users\Dubo\Dropbox\AI Music
 
 ## n8n Integration
 
+For the shortest Telegram-first test, see [TELEGRAM_TEST.md](TELEGRAM_TEST.md).
+
 Recommended flow:
 
 ```text
