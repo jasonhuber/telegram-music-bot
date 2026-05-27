@@ -5,6 +5,7 @@ import json
 import math
 import os
 import queue
+import random
 import re
 import shutil
 import subprocess
@@ -28,7 +29,7 @@ ROOT = Path(__file__).resolve().parent
 def load_dotenv(path: Path) -> None:
     if not path.exists():
         return
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -57,6 +58,7 @@ class Config:
     generator_command: str = os.environ.get("MUSIC_GENERATOR_COMMAND", "").strip()
     generator_timeout_seconds: int = int(os.environ.get("MUSIC_GENERATOR_TIMEOUT_SECONDS", "3600"))
     fallback_tone_seconds: int = int(os.environ.get("MUSICBOT_FALLBACK_TONE_SECONDS", "18"))
+    fallback_variation: bool = os.environ.get("MUSICBOT_FALLBACK_VARIATION", "true").lower() not in {"0", "false", "no"}
 
 
 CONFIG = Config()
@@ -145,7 +147,7 @@ def resolve_reference(payload: dict[str, Any], job_dir: Path) -> Path | None:
     return None
 
 
-def fallback_music_brief(prompt: str, duration_seconds: int, reference_path: Path | None) -> dict[str, Any]:
+def fallback_music_brief(prompt: str, duration_seconds: int, reference_path: Path | None, variation_seed: int) -> dict[str, Any]:
     title_source = prompt.splitlines()[0] if prompt.strip() else "AI music sketch"
     traits = []
     lower_prompt = prompt.lower()
@@ -162,6 +164,7 @@ def fallback_music_brief(prompt: str, duration_seconds: int, reference_path: Pat
         "lyrics": "",
         "prompt": prompt.strip() or "Create an original instrumental music cue.",
         "reference_path": str(reference_path) if reference_path else "",
+        "seed": variation_seed,
         "safety_note": "Generated from musical traits rather than copying a specific artist.",
     }
 
@@ -217,7 +220,7 @@ def call_ollama(model: str, body: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"Ollama HTTP {error.code}: {detail[:500]}") from error
 
 
-def normalize_with_ollama(prompt: str, duration_seconds: int, reference_path: Path | None) -> dict[str, Any]:
+def normalize_with_ollama(prompt: str, duration_seconds: int, reference_path: Path | None, variation_seed: int) -> dict[str, Any]:
     system = (
         "You turn Telegram music requests into safe, structured prompts for an original music generator. "
         "If the user asks for a living artist or copyrighted song style, describe musical traits instead of naming "
@@ -227,6 +230,7 @@ def normalize_with_ollama(prompt: str, duration_seconds: int, reference_path: Pa
         "telegram_prompt": prompt,
         "requested_duration_seconds": duration_seconds,
         "has_reference_audio": reference_path is not None,
+        "variation_seed": variation_seed,
         "json_schema": {
             "title": "short filename-safe title",
             "duration_seconds": "10 to 600",
@@ -236,6 +240,7 @@ def normalize_with_ollama(prompt: str, duration_seconds: int, reference_path: Pa
             "instruments": ["instrument names"],
             "lyrics": "lyrics with section tags, or empty string for instrumental",
             "prompt": "complete original generation prompt",
+            "seed": "integer seed",
             "safety_note": "one short note about originality",
         },
     }
@@ -260,16 +265,17 @@ def normalize_with_ollama(prompt: str, duration_seconds: int, reference_path: Pa
     brief["duration_seconds"] = clamp_duration(brief.get("duration_seconds", duration_seconds))
     brief.setdefault("prompt", prompt)
     brief.setdefault("title", "AI music sketch")
+    brief.setdefault("seed", variation_seed)
     brief["reference_path"] = str(reference_path) if reference_path else ""
     brief["ollama_model"] = str(result.get("model", attempted[-1] if attempted else CONFIG.ollama_model))
     return brief
 
 
-def build_music_brief(prompt: str, duration_seconds: int, reference_path: Path | None) -> dict[str, Any]:
+def build_music_brief(prompt: str, duration_seconds: int, reference_path: Path | None, variation_seed: int) -> dict[str, Any]:
     try:
-        return normalize_with_ollama(prompt, duration_seconds, reference_path)
+        return normalize_with_ollama(prompt, duration_seconds, reference_path, variation_seed)
     except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as error:
-        brief = fallback_music_brief(prompt, duration_seconds, reference_path)
+        brief = fallback_music_brief(prompt, duration_seconds, reference_path, variation_seed)
         brief["ollama_warning"] = str(error)
         return brief
 
@@ -291,10 +297,17 @@ def write_prompt_files(job_dir: Path, brief: dict[str, Any]) -> tuple[Path, Path
 def render_fallback_tone(output_path: Path, brief: dict[str, Any]) -> None:
     duration = min(clamp_duration(brief.get("duration_seconds")), CONFIG.fallback_tone_seconds)
     sample_rate = 44100
-    digest = hashlib.sha256(str(brief.get("prompt", "")).encode("utf-8")).digest()
-    root = 220 + digest[0] % 180
-    intervals = [0, 3, 7, 10] if "minor" in str(brief).lower() else [0, 4, 7, 12]
+    seed_source = f"{brief.get('prompt', '')}|{brief.get('seed', '')}"
+    digest = hashlib.sha256(seed_source.encode("utf-8")).digest()
+    rng = random.Random(int.from_bytes(digest[:8], "big"))
+    root = 160 + rng.randint(0, 280)
+    interval_sets = ([0, 3, 7, 10], [0, 4, 7, 11], [0, 2, 7, 9], [0, 5, 7, 12])
+    intervals = rng.choice(interval_sets)
     freqs = [root * (2 ** (interval / 12)) for interval in intervals]
+    beat_rate = rng.choice([1.1, 1.35, 1.6, 1.85, 2.2])
+    wobble_rate = rng.uniform(0.07, 0.21)
+    pan_rate = rng.uniform(0.11, 0.37)
+    lead_index = rng.randrange(len(freqs))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with wave.open(str(output_path), "wb") as wav:
@@ -303,13 +316,19 @@ def render_fallback_tone(output_path: Path, brief: dict[str, Any]) -> None:
         wav.setframerate(sample_rate)
         for index in range(duration * sample_rate):
             t = index / sample_rate
-            beat = 0.5 + 0.5 * math.sin(2 * math.pi * 1.6 * t)
-            chord = sum(math.sin(2 * math.pi * freq * t) for freq in freqs) / len(freqs)
-            melody = math.sin(2 * math.pi * freqs[(index // sample_rate) % len(freqs)] * 2 * t)
-            value = 0.18 * chord + 0.08 * melody * beat
+            beat = 0.5 + 0.5 * math.sin(2 * math.pi * beat_rate * t)
+            wobble = 0.85 + 0.15 * math.sin(2 * math.pi * wobble_rate * t)
+            chord = sum(math.sin(2 * math.pi * freq * wobble * t) for freq in freqs) / len(freqs)
+            melody_freq = freqs[(lead_index + index // max(sample_rate // 2, 1)) % len(freqs)] * rng.choice([1, 2])
+            melody = math.sin(2 * math.pi * melody_freq * t)
+            noise_tick = 0.18 if int(t * beat_rate * 4) % 4 == 0 else 0.0
+            value = 0.16 * chord + 0.1 * melody * beat + noise_tick * math.sin(2 * math.pi * root * 0.5 * t)
             envelope = min(1.0, t / 1.5, (duration - t) / 1.5)
-            sample = int(max(-1.0, min(1.0, value * envelope)) * 32767)
-            wav.writeframesraw(sample.to_bytes(2, "little", signed=True) * 2)
+            left_pan = 0.75 + 0.25 * math.sin(2 * math.pi * pan_rate * t)
+            right_pan = 1.0 - (left_pan - 0.75)
+            left = int(max(-1.0, min(1.0, value * envelope * left_pan)) * 32767)
+            right = int(max(-1.0, min(1.0, value * envelope * right_pan)) * 32767)
+            wav.writeframesraw(left.to_bytes(2, "little", signed=True) + right.to_bytes(2, "little", signed=True))
 
 
 def run_generator_command(job_dir: Path, brief: dict[str, Any], reference_path: Path | None) -> Path:
@@ -325,6 +344,7 @@ def run_generator_command(job_dir: Path, brief: dict[str, Any], reference_path: 
             "MUSICBOT_REFERENCE_PATH": str(reference_path or ""),
             "MUSICBOT_DURATION_SECONDS": str(clamp_duration(brief.get("duration_seconds"))),
             "MUSICBOT_TITLE": str(brief.get("title", "AI music sketch")),
+            "MUSICBOT_SEED": str(brief.get("seed", "")),
         }
     )
 
@@ -373,9 +393,10 @@ def process_job(job_id: str) -> None:
         prompt = str(payload.get("prompt") or payload.get("text") or "").strip()
         duration_seconds = clamp_duration(payload.get("duration_seconds"))
         reference_path = resolve_reference(payload, job_dir)
+        variation_seed = int(payload.get("seed") or random.randint(1, 2_147_483_647))
 
         update_job(job_id, stage="normalizing_prompt")
-        brief = build_music_brief(prompt, duration_seconds, reference_path)
+        brief = build_music_brief(prompt, duration_seconds, reference_path, variation_seed)
         write_prompt_files(job_dir, brief)
 
         update_job(job_id, stage="generating_audio", brief=brief)

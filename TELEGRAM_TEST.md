@@ -94,7 +94,7 @@ Text:
 Send your bot a message like:
 
 ```text
-90 second instrumental synthwave cue, neon night drive, pulsing bass, no vocals
+/music 90 second instrumental synthwave cue, neon night drive, pulsing bass, no vocals
 ```
 
 Expected result:
@@ -103,6 +103,12 @@ Expected result:
 - n8n posts the prompt to the local service.
 - The service creates an audio file in `C:\Users\Dubo\Dropbox\AI Music`.
 - Telegram replies with the local output path.
+
+Plain text without a music command is treated as regular Dubo chat. Audio or voice uploads are treated as music requests automatically, so you can record a short clip and send it with a caption like:
+
+```text
+loop this into a dusty lofi beat
+```
 
 ## 4. Later: Send Audio Back To Telegram
 

@@ -11,7 +11,7 @@ Local bridge between your existing Telegram/n8n flow, Ollama, a music generator,
 - Writes the finished audio file into your Dropbox folder.
 - Exposes job status at `GET /jobs/{job_id}`.
 
-If `MUSIC_GENERATOR_COMMAND` is empty, the service writes a short WAV tone sketch. That fallback is only for testing the Telegram -> n8n -> service -> Dropbox loop before ACE-Step is wired in.
+If `MUSIC_GENERATOR_COMMAND` is empty, the service writes a short WAV tone sketch. That fallback is only for testing the Telegram -> n8n -> service -> Dropbox loop before ACE-Step is wired in. It now varies seed, pitch, rhythm, and stereo movement per request, but it is still not a real music model.
 
 ## Start It
 
@@ -109,7 +109,25 @@ python .\telegram_poller.py
 
 The poller sends each Telegram text prompt to the local `/generate` endpoint and replies with the output path.
 
+The poller routes messages by intent:
+
+```text
+/music <prompt>       create a music file
+/song <prompt>        create a music file
+/loop <prompt>        create a loop-oriented music file
+/beat <prompt>        create a beat-oriented music file
+/help                 show commands
+plain text            chat through Ollama when available
+audio or voice upload use the clip as source material for music generation
+```
+
+Audio and voice uploads are saved under `.runtime/telegram-inbox/` and passed to the generator as `source_path`. A real generator wrapper should read `MUSICBOT_REFERENCE_PATH` and decide whether to use it as melody, rhythm, timbre, or raw loop material.
+
+When `ffmpeg` is available, Telegram audio uploads are normalized to mono 44.1 kHz WAV clips, capped at 30 seconds, before being passed to the generator. That keeps voice notes, MP3s, OGGs, and Telegram audio documents predictable for local model wrappers.
+
 ## Plug In ACE-Step
+
+For a comparison of useful local audio models and companion tools, see [MODEL_OPTIONS.md](MODEL_OPTIONS.md).
 
 Install ACE-Step in its own environment, then set `MUSIC_GENERATOR_COMMAND` in `.env`. The bot passes data through environment variables:
 
@@ -120,6 +138,7 @@ MUSICBOT_OUTPUT_PATH
 MUSICBOT_REFERENCE_PATH
 MUSICBOT_DURATION_SECONDS
 MUSICBOT_TITLE
+MUSICBOT_SEED
 ```
 
 The most robust pattern is to create a tiny wrapper script for your chosen generator:
