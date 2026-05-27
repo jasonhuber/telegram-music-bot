@@ -139,7 +139,7 @@ def resolve_reference(payload: dict[str, Any], job_dir: Path) -> Path | None:
             raise FileNotFoundError(f"Reference path does not exist: {path}")
         return path
 
-    source_url = payload.get("source_url") or first_url(str(payload.get("prompt", "")))
+    source_url = payload.get("source_url")
     if source_url:
         return download_reference(str(source_url), job_dir)
     return None

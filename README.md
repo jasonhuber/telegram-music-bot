@@ -96,6 +96,19 @@ Send this JSON to `/generate`:
 
 If n8n runs in Docker, `127.0.0.1` points at the container. Use `http://host.docker.internal:8710/generate`, and make sure the path you send as `source_path` exists on the host where this service runs.
 
+URLs inside `prompt` are treated as prompt context. To download a reference file, pass the URL explicitly as `source_url`; this avoids accidentally trying to download general pages such as YouTube or streaming-service links during a quick Telegram test.
+
+## Optional Direct Telegram Poller
+
+If n8n inbound webhooks are not active yet, you can let this service poll the Telegram bot directly:
+
+```powershell
+$env:MUSICBOT_TELEGRAM_BOT_TOKEN = "your-bot-token"
+python .\telegram_poller.py
+```
+
+The poller sends each Telegram text prompt to the local `/generate` endpoint and replies with the output path.
+
 ## Plug In ACE-Step
 
 Install ACE-Step in its own environment, then set `MUSIC_GENERATOR_COMMAND` in `.env`. The bot passes data through environment variables:

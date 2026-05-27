@@ -17,6 +17,18 @@ Leave that window open.
 
 Use the Telegram credential for the bot named `Dubo`. After that Telegram trigger, add an `HTTP Request` node.
 
+This repo also includes an importable n8n webhook workflow at:
+
+```text
+workflows/dubo-music-generator.n8n.json
+```
+
+That workflow expects Telegram's webhook to point at:
+
+```text
+https://n8n.hub3r.com/webhook/dubo-music
+```
+
 The workflow can be named something explicit like:
 
 ```text

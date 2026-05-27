@@ -1,0 +1,114 @@
+{
+  "name": "Dubo - AI Music Generator",
+  "id": "duboMusicGenerator",
+  "active": true,
+  "nodes": [
+    {
+      "id": "dubo-music-webhook",
+      "name": "Dubo Telegram Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "path": "dubo-music",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "dubo-music-webhook"
+    },
+    {
+      "id": "extract-telegram-message",
+      "name": "Extract Telegram Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? $input.first().json;\nconst message = body.message ?? body.edited_message ?? body.channel_post ?? {};\nconst chatId = message.chat?.id;\nconst prompt = String(message.text ?? message.caption ?? '').trim();\n\nif (!chatId || !prompt) {\n  return [];\n}\n\nreturn [{ json: {\n  prompt,\n  chat_id: chatId,\n  message_id: message.message_id ?? null,\n  username: message.from?.username ?? '',\n  first_name: message.from?.first_name ?? '',\n  duration_seconds: 90\n} }];"
+      }
+    },
+    {
+      "id": "call-music-bot",
+      "name": "Call Local Music Bot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8710/generate",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ prompt: $json.prompt, duration_seconds: $json.duration_seconds, wait: true, wait_timeout_seconds: 600, telegram: { chat_id: $json.chat_id, message_id: $json.message_id, username: $json.username } }) }}",
+        "options": {
+          "timeout": 650000
+        }
+      }
+    },
+    {
+      "id": "reply-to-telegram",
+      "name": "Reply To Telegram",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const token = process.env.TELEGRAM_BOT_TOKEN;\nif (!token) {\n  throw new Error('TELEGRAM_BOT_TOKEN is not set in the n8n service environment.');\n}\n\nconst result = $input.first().json;\nconst source = $('Extract Telegram Message').item.json;\nconst text = result.status === 'completed'\n  ? `Done: ${result.output_path}`\n  : `Music job failed: ${result.error || result.status || 'unknown error'}`;\n\nconst response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {\n  method: 'POST',\n  headers: { 'Content-Type': 'application/json' },\n  body: JSON.stringify({\n    chat_id: source.chat_id,\n    reply_to_message_id: source.message_id || undefined,\n    text\n  })\n});\n\nif (!response.ok) {\n  throw new Error(`Telegram sendMessage failed: ${response.status} ${await response.text()}`);\n}\n\nreturn [{ json: { sent: true, chat_id: source.chat_id, output_path: result.output_path ?? null, status: result.status } }];"
+      }
+    }
+  ],
+  "connections": {
+    "Dubo Telegram Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Telegram Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Telegram Message": {
+      "main": [
+        [
+          {
+            "node": "Call Local Music Bot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Local Music Bot": {
+      "main": [
+        [
+          {
+            "node": "Reply To Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "pinData": {},
+  "tags": []
+}
