@@ -10,6 +10,9 @@ Local bridge between your existing Telegram/n8n flow, Ollama, a music generator,
 - Runs a configurable local music generator command.
 - Writes the finished audio file into your Dropbox folder.
 - Exposes job status at `GET /jobs/{job_id}`.
+- Persists job history in SQLite so status survives service restarts.
+- Can generate several quick draft variants, then rerender the selected job at higher quality.
+- Splits long requests into segments and crossfades them into one output file.
 
 If `MUSIC_GENERATOR_COMMAND` is empty, the service writes a short WAV tone sketch. That fallback is only for testing the Telegram -> n8n -> service -> Dropbox loop before ACE-Step is wired in. It now varies seed, pitch, rhythm, and stereo movement per request, but it is still not a real music model.
 
@@ -117,6 +120,7 @@ The poller routes messages by intent:
 /loop <prompt>        create a loop-oriented music file
 /beat <prompt>        create a beat-oriented music file
 /help                 show commands
+/better <job_id>      rerender a selected draft at higher quality
 plain text            chat through Ollama when available
 audio or voice upload use the clip as source material for music generation
 ```
@@ -182,6 +186,10 @@ Response:
   "generator_mode": "command"
 }
 ```
+
+`GET /history?limit=20` (also available as `GET /jobs?limit=20`) returns the most recently updated jobs. Existing `POST /generate` and `GET /jobs/{job_id}` request and response fields remain supported; the newer quality, batch, and variant fields are additive.
+
+For a direct Telegram deployment on Windows, `scripts/start-musicbot.ps1` starts both the render server and poller and skips processes that are already running.
 
 ## Notes
 
